@@ -1,6 +1,6 @@
-import { GameEngine } from './game-engine.js?v=map-progress-1';
-import { render } from './game-render.js?v=map-progress-1';
-import { createGameUI } from './game-ui.js?v=map-progress-1';
+import { GameEngine } from './game-engine.js?v=map-progress-3';
+import { render } from './game-render.js?v=map-progress-3';
+import { createGameUI } from './game-ui.js?v=map-progress-3';
 
 const get = selector => document.querySelector(selector);
 const game = new GameEngine();

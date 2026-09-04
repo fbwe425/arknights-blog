@@ -1,10 +1,10 @@
-import { OPERATORS, LEVELS, GRID } from './game-data.js?v=map-progress-1';
-import { loadProgress, rewardForWin } from './game-progress.js?v=map-progress-1';
+import { OPERATORS, LEVELS, GRID } from './game-data.js?v=map-progress-3';
+import { loadProgress, rewardForWin } from './game-progress.js?v=map-progress-3';
 
 export function createGameUI({ game, canvas, render, elements }) {
   const { level, life, dp, kills, waves, operators, skills, log, start, reset, pause, speed, mapName, mapTrait, reward } = elements;
   const progress = loadProgress();
-  const state = { lastFrame: 0, layout: null, preview: null };
+  const state = { lastFrame: 0, lastUiUpdate: 0, layout: null, preview: null, dirty: true };
 
   function refreshLevels() {
     level.innerHTML = LEVELS.map(item => {
@@ -47,11 +47,21 @@ export function createGameUI({ game, canvas, render, elements }) {
     state.lastFrame = timestamp;
     game.tick(delta);
     state.layout = render(canvas, game, state.preview);
-    renderState();
+    // Rebuilding operator controls every frame causes detached buttons and harms input responsiveness.
+    // The tactical HUD only needs a low-frequency status refresh; explicit actions mark it dirty.
+    if (state.dirty || timestamp - state.lastUiUpdate > 250) {
+      syncState();
+      state.lastUiUpdate = timestamp;
+    }
     requestAnimationFrame(frame);
   }
 
-  game.on('log', message => { log.textContent = message; });
+  game.on('state', () => { state.dirty = true; });
+  game.on('log', message => { log.textContent = message; state.dirty = true; });
+  const originalRenderState = renderState;
+  // renderState clears the explicit-update marker after synchronizing DOM.
+  function syncState() { originalRenderState(); state.dirty = false; }
+
   game.on('end', success => {
     if (!success) { log.textContent = '行动失败：终端失守。请调整部署后重试。'; return; }
     const operatorId = rewardForWin(progress, game.level);
@@ -75,6 +85,6 @@ export function createGameUI({ game, canvas, render, elements }) {
   const availableLevels = LEVELS.filter(item => item.id === 1 || progress.cleared.has(item.id - 1));
   level.value = String(availableLevels.at(-1)?.id ?? 1);
   game.reset(Number(level.value));
-  renderState();
+  syncState();
   requestAnimationFrame(frame);
 }

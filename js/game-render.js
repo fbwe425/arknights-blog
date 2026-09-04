@@ -1,9 +1,17 @@
-import { GRID } from './game-data.js?v=map-progress-1';
+import { GRID } from './game-data.js?v=map-progress-3';
 
 const imageCache = new Map();
 const COLORS = { ground:'#2f3940', high:'#233a51', road:'#77848a', line:'#b8c7c9', goal:'#00d8dd' };
 function getPortrait(src) { if (!imageCache.has(src)) { const image = new Image(); image.src = src; imageCache.set(src, image); } return imageCache.get(src); }
-function cellIsRoad(map, col, row) { return map.routes.some(route => route.some((point, index) => { if (!index) return false; const previous = route[index - 1]; return (previous[1] === point[1] && row === Math.floor(point[1]) && col >= Math.min(previous[0], point[0]) && col < Math.max(previous[0], point[0])) || (previous[0] === point[0] && col === Math.floor(point[0]) && row >= Math.min(previous[1], point[1]) && row < Math.max(previous[1], point[1]); })); }
+function cellIsRoad(map, col, row) {
+  return map.routes.some(route => route.some((point, index) => {
+    if (!index) return false;
+    const previous = route[index - 1];
+    const horizontal = previous[1] === point[1] && row === Math.floor(point[1]) && col >= Math.min(previous[0], point[0]) && col < Math.max(previous[0], point[0]);
+    const vertical = previous[0] === point[0] && col === Math.floor(point[0]) && row >= Math.min(previous[1], point[1]) && row < Math.max(previous[1], point[1]);
+    return horizontal || vertical;
+  }));
+}
 function gridToScreen(layout, x, y) { return [layout.offsetX + x * layout.cell, layout.offsetY + y * layout.cell]; }
 function drawBoard(context, layout, game) { const { cell, offsetX, offsetY, width, height } = layout; context.fillStyle='#0f1b29';context.fillRect(0,0,width,height); for(let row=0;row<GRID.rows;row+=1)for(let col=0;col<GRID.cols;col+=1){context.fillStyle=cellIsRoad(game.level.map,col,row)?COLORS.road:row<4?COLORS.high:COLORS.ground;context.fillRect(offsetX+col*cell,offsetY+row*cell,cell-1,cell-1);} for(const route of game.level.map.routes){context.strokeStyle=COLORS.line;context.lineWidth=Math.max(4,cell*.12);context.beginPath();route.forEach(([x,y],index)=>{const [sx,sy]=gridToScreen(layout,x,y);index?context.lineTo(sx,sy):context.moveTo(sx,sy)});context.stroke();} const [goalX,goalY]=gridToScreen(layout,game.level.map.routes[0].at(-1)[0],game.level.map.routes[0].at(-1)[1]);context.fillStyle=COLORS.goal;context.fillRect(goalX-cell*.13,goalY-cell*.25,cell*.26,cell*.5); }
 function drawRange(context, layout, selected) { if (!selected) return; context.fillStyle='rgba(0,216,221,.10)'; context.strokeStyle='rgba(0,216,221,.7)';context.lineWidth=1; for(let row=0;row<GRID.rows;row+=1)for(let col=0;col<GRID.cols;col+=1){if(Math.hypot(col+.5-selected.col,row+.5-selected.row)<=selected.range){const[x,y]=gridToScreen(layout,col,row);context.fillRect(x+1,y+1,layout.cell-2,layout.cell-2);}} }

@@ -1,4 +1,4 @@
-import { GRID, OPERATORS, ENEMIES, LEVELS } from './game-data.js?v=map-progress-1';
+import { GRID, OPERATORS, ENEMIES, LEVELS } from './game-data.js?v=map-progress-3';
 
 const MAX_DP = 99;
 const RANGED_ROLES = new Set(['狙击', '术师', '医疗']);
@@ -233,6 +233,5 @@ export class GameEngine {
 
     if (this.life <= 0) { this.running = false; this.over = true; this.emit('end', false); }
     if (this.wave === this.level.waves.length && !this.enemies.length) { this.running = false; this.over = true; this.emit('end', true); }
-    this.emit('state', this);
   }
 }
