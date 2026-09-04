@@ -1,2 +1,218 @@
-import {GRID,OPERATORS,ENEMIES,LEVELS} from './game-data.js';
-export class GameEngine{constructor(){this.listeners={};this.reset(1)}on(k,f){(this.listeners[k]??=[]).push(f)}emit(k,v){(this.listeners[k]||[]).forEach(f=>f(v))}reset(level=1){this.level=LEVELS[level-1];this.time=0;this.dp=22;this.life=3;this.kills=0;this.total=this.level.waves.reduce((a,w)=>a+w.count,0);this.enemies=[];this.units=[];this.bullets=[];this.wave=0;this.spawned=0;this.nextSpawn=0;this.running=false;this.over=false;this.selected=null;this.emit('state',this)}start(){if(this.running||this.over)return;this.running=true;this.emit('log',`行动开始：共 ${this.level.waves.length} 波敌军。`)}select(id){this.selected=OPERATORS.find(x=>x.id===id);this.emit('state',this)}deploy(col,row){const op=this.selected;if(!op||!this.running||this.dp<op.cost||this.units.some(u=>u.col===col&&u.row===row)){this.emit('log','无法在此部署。请确认费用、空位和行动状态。');return false}if((op.role==='狙击'||op.role==='术师'||op.role==='医疗')&&row>3){this.emit('log','远程干员只能部署在高台格。');return false}if((op.role==='近卫'||op.role==='重装')&&row<4){this.emit('log','近战干员只能部署在地面格。');return false}this.dp-=op.cost;this.units.push({...op,col,row,hp:1000,maxHp:1000,cooldown:0,skillCd:0,skillActive:0,blocked:[]});this.emit('log',`${op.name} 已部署。`);this.emit('state',this);return true}skill(i){const u=this.units[i];if(!u||u.skillCd>0){this.emit('log','技能尚未准备完成。');return}u.skillActive=u.skillDuration;u.skillCd=24;this.emit('log',`${u.name}：${u.skill}！`)}spawn(){const w=this.level.waves[this.wave];if(!w)return;const base=ENEMIES[w.type];this.enemies.push({...base,id:Math.random(),hp:Math.round(base.hp*this.level.scale),maxHp:Math.round(base.hp*this.level.scale),x:-.4,y:3.5,blockedBy:null,attackCd:0});this.spawned++;if(this.spawned>=w.count){this.wave++;this.spawned=0;this.nextSpawn=this.time+2;this.emit('log',this.wave<this.level.waves.length?`第 ${this.wave+1} 波即将抵达。`:'所有敌人已出现。')}else this.nextSpawn=this.time+w.gap/1000}tick(dt){if(!this.running)return;this.time+=dt;this.dp=Math.min(99,this.dp+dt*1.05);if(this.wave<this.level.waves.length&&this.time>=this.nextSpawn)this.spawn();for(const u of this.units){u.cooldown-=dt;u.skillCd=Math.max(0,u.skillCd-dt);u.skillActive=Math.max(0,u.skillActive-dt);const r=u.range+(u.skillActive&&u.name==='银灰'?1.7:0);const targets=this.enemies.filter(e=>e.hp>0&&Math.hypot(e.x-(u.col+.5),e.y-(u.row+.5))<=r);if(u.target==='heal'){const hurt=this.units.filter(a=>a.hp<a.maxHp&&Math.hypot(a.col-u.col,a.row-u.row)<=r).sort((a,b)=>a.hp/b.hp-a.hp/a.maxHp)[0];if(hurt&&u.cooldown<=0){hurt.hp=Math.min(hurt.maxHp,hurt.hp+u.atk*(u.skillActive?u.skillMult:1)*4);u.cooldown=u.interval;this.bullets.push({from:u,to:hurt,heal:true,t:.18});}}else if(targets.length&&u.cooldown<=0){const shots=u.skillActive&&u.name==='能天使'?3:1;const pick=u.skillActive&&u.name==='银灰'?targets:targets.slice(0,shots);for(const e of pick){const raw=u.atk*(u.skillActive?u.skillMult:1);const dmg=u.damage==='arts'?Math.max(1,raw*(100-e.res)/100):Math.max(1,raw-e.def);e.hp-=dmg;this.bullets.push({from:u,to:e,heal:false,t:.18})}u.cooldown=u.interval;}}for(const e of this.enemies){e.attackCd-=dt;const blocker=this.units.find(u=>u.row===4&&Math.abs(e.x-(u.col+.5))<.36&&u.blocked.length<(u.block||1));if(blocker){e.blockedBy=blocker;if(!blocker.blocked.includes(e))blocker.blocked.push(e);if(e.attackCd<=0){blocker.hp-=e.atk;e.attackCd=1.2}}else{e.blockedBy=null;e.x+=e.spd*dt;if(e.x>GRID.cols){e.hp=0;this.life--;this.emit('log','敌军突破防线！')}}}for(const u of this.units)u.blocked=u.blocked.filter(e=>e.hp>0);const dead=this.enemies.filter(e=>e.hp<=0);dead.forEach(e=>{this.kills++;this.dp=Math.min(99,this.dp+e.reward)});this.enemies=this.enemies.filter(e=>e.hp>0);this.units=this.units.filter(u=>u.hp>0);this.bullets=this.bullets.map(b=>({...b,t:b.t-dt})).filter(b=>b.t>0);if(this.life<=0){this.running=false;this.over=true;this.emit('end',false)}if(this.wave===this.level.waves.length&&!this.enemies.length){this.running=false;this.over=true;this.emit('end',true)}this.emit('state',this)}}
+import { GRID, OPERATORS, ENEMIES, LEVELS } from './game-data.js';
+
+const MAX_DP = 99;
+const GROUND_ROW = 4;
+const RANGED_ROLES = new Set(['狙击', '术师', '医疗']);
+
+function distanceToUnit(enemy, unit) {
+  return Math.hypot(enemy.x - (unit.col + 0.5), enemy.y - (unit.row + 0.5));
+}
+
+export class GameEngine {
+  constructor() {
+    this.listeners = {};
+    this.reset(1);
+  }
+
+  on(eventName, callback) {
+    (this.listeners[eventName] ??= []).push(callback);
+  }
+
+  emit(eventName, payload) {
+    (this.listeners[eventName] || []).forEach(callback => callback(payload));
+  }
+
+  reset(levelId = 1) {
+    this.level = LEVELS[levelId - 1];
+    this.time = 0;
+    this.dp = 22;
+    this.life = 3;
+    this.kills = 0;
+    this.total = this.level.waves.reduce((sum, wave) => sum + wave.count, 0);
+    this.enemies = [];
+    this.units = [];
+    this.bullets = [];
+    this.wave = 0;
+    this.spawned = 0;
+    this.nextSpawn = 0;
+    this.running = false;
+    this.paused = false;
+    this.over = false;
+    this.selected = OPERATORS[0];
+    this.speed = 1;
+    this.emit('state', this);
+  }
+
+  start() {
+    if (this.over) return;
+    if (!this.running) {
+      this.running = true;
+      this.paused = false;
+      this.emit('log', `行动开始：共 ${this.level.waves.length} 波敌军。`);
+    }
+  }
+
+  togglePause() {
+    if (!this.running || this.over) return;
+    this.paused = !this.paused;
+    this.emit('log', this.paused ? '行动已暂停。' : '行动继续。');
+  }
+
+  toggleSpeed() {
+    this.speed = this.speed === 1 ? 2 : 1;
+    this.emit('log', `作战速度：${this.speed} 倍。`);
+  }
+
+  select(id) {
+    this.selected = OPERATORS.find(operator => operator.id === id) ?? null;
+    this.emit('state', this);
+  }
+
+  isValidTile(operator, row) {
+    return RANGED_ROLES.has(operator.role) ? row < 4 : row === GROUND_ROW;
+  }
+
+  deploy(col, row) {
+    const operator = this.selected;
+    if (!operator || this.dp < operator.cost || this.units.some(unit => unit.col === col && unit.row === row)) {
+      this.emit('log', '无法在此部署。请确认费用和空位。');
+      return false;
+    }
+    if (!this.isValidTile(operator, row)) {
+      this.emit('log', RANGED_ROLES.has(operator.role) ? '远程干员只能部署在高台格。' : '近战干员只能部署在道路地面格。');
+      return false;
+    }
+
+    this.dp -= operator.cost;
+    this.units.push({
+      ...operator,
+      col,
+      row,
+      hp: 1000,
+      maxHp: 1000,
+      cooldown: 0,
+      skillCd: 0,
+      skillActive: 0,
+      blocked: []
+    });
+    this.emit('log', `${operator.name} 已部署。`);
+    return true;
+  }
+
+  retreat(unitIndex) {
+    const unit = this.units[unitIndex];
+    if (!unit) return;
+    const refund = Math.floor(unit.cost / 2);
+    this.dp = Math.min(MAX_DP, this.dp + refund);
+    this.units.splice(unitIndex, 1);
+    this.emit('log', `${unit.name} 已撤退，返还 ${refund} 费用。`);
+  }
+
+  skill(unitIndex) {
+    const unit = this.units[unitIndex];
+    if (!unit || unit.skillCd > 0) {
+      this.emit('log', '技能尚未准备完成。');
+      return;
+    }
+    unit.skillActive = unit.skillDuration;
+    unit.skillCd = 24;
+    this.emit('log', `${unit.name}：${unit.skill}！`);
+  }
+
+  spawnEnemy() {
+    const wave = this.level.waves[this.wave];
+    if (!wave) return;
+    const template = ENEMIES[wave.type];
+    const maxHp = Math.round(template.hp * this.level.scale);
+    this.enemies.push({ ...template, id: crypto.randomUUID?.() ?? `${performance.now()}-${Math.random()}`, hp: maxHp, maxHp, x: -0.4, y: 3.5, attackCd: 0 });
+
+    this.spawned += 1;
+    if (this.spawned >= wave.count) {
+      this.wave += 1;
+      this.spawned = 0;
+      this.nextSpawn = this.time + 2;
+      this.emit('log', this.wave < this.level.waves.length ? `第 ${this.wave + 1} 波即将抵达。` : '所有敌人已出现。');
+    } else {
+      this.nextSpawn = this.time + wave.gap / 1000;
+    }
+  }
+
+  updateUnits(delta) {
+    for (const unit of this.units) {
+      unit.cooldown -= delta;
+      unit.skillCd = Math.max(0, unit.skillCd - delta);
+      unit.skillActive = Math.max(0, unit.skillActive - delta);
+      const range = unit.range + (unit.skillActive && unit.name === '银灰' ? 1.7 : 0);
+      const targets = this.enemies.filter(enemy => enemy.hp > 0 && distanceToUnit(enemy, unit) <= range);
+
+      if (unit.target === 'heal') {
+        const injured = this.units.filter(ally => ally.hp < ally.maxHp && Math.hypot(ally.col - unit.col, ally.row - unit.row) <= range)
+          .sort((left, right) => left.hp / left.maxHp - right.hp / right.maxHp)[0];
+        if (injured && unit.cooldown <= 0) {
+          injured.hp = Math.min(injured.maxHp, injured.hp + unit.atk * (unit.skillActive ? unit.skillMult : 1) * 4);
+          unit.cooldown = unit.interval;
+          this.bullets.push({ from: unit, to: { x: injured.col + 0.5, y: injured.row + 0.5 }, heal: true, t: 0.18 });
+        }
+        continue;
+      }
+
+      if (!targets.length || unit.cooldown > 0) continue;
+      const shotCount = unit.skillActive && unit.name === '能天使' ? 3 : 1;
+      const attackTargets = unit.skillActive && unit.name === '银灰' ? targets : targets.slice(0, shotCount);
+      for (const enemy of attackTargets) {
+        const rawDamage = unit.atk * (unit.skillActive ? unit.skillMult : 1);
+        const damage = unit.damage === 'arts' ? Math.max(1, rawDamage * (100 - enemy.res) / 100) : Math.max(1, rawDamage - enemy.def);
+        enemy.hp -= damage;
+        this.bullets.push({ from: unit, to: enemy, heal: false, t: 0.18 });
+      }
+      unit.cooldown = unit.interval;
+    }
+  }
+
+  updateEnemies(delta) {
+    for (const enemy of this.enemies) {
+      enemy.attackCd -= delta;
+      const blocker = this.units.find(unit => unit.row === GROUND_ROW && Math.abs(enemy.x - (unit.col + 0.5)) < 0.36 && unit.blocked.length < (unit.block || 1));
+      if (blocker) {
+        if (!blocker.blocked.includes(enemy)) blocker.blocked.push(enemy);
+        if (enemy.attackCd <= 0) {
+          blocker.hp -= enemy.atk;
+          enemy.attackCd = 1.2;
+        }
+      } else {
+        enemy.x += enemy.spd * delta;
+        if (enemy.x > GRID.cols) {
+          enemy.hp = 0;
+          this.life -= 1;
+          this.emit('log', '敌军突破防线！');
+        }
+      }
+    }
+  }
+
+  cleanUp() {
+    for (const unit of this.units) unit.blocked = unit.blocked.filter(enemy => enemy.hp > 0);
+    for (const enemy of this.enemies.filter(item => item.hp <= 0)) {
+      this.kills += 1;
+      this.dp = Math.min(MAX_DP, this.dp + enemy.reward);
+    }
+    this.enemies = this.enemies.filter(enemy => enemy.hp > 0);
+    this.units = this.units.filter(unit => unit.hp > 0);
+    this.bullets = this.bullets.map(bullet => ({ ...bullet, t: bullet.t - 0.02 })).filter(bullet => bullet.t > 0);
+  }
+
+  tick(delta) {
+    if (!this.running || this.paused) return;
+    const scaledDelta = delta * this.speed;
+    this.time += scaledDelta;
+    this.dp = Math.min(MAX_DP, this.dp + scaledDelta * 1.05);
+    if (this.wave < this.level.waves.length && this.time >= this.nextSpawn) this.spawnEnemy();
+    this.updateUnits(scaledDelta);
+    this.updateEnemies(scaledDelta);
+    this.cleanUp();
+
+    if (this.life <= 0) { this.running = false; this.over = true; this.emit('end', false); }
+    if (this.wave === this.level.waves.length && !this.enemies.length) { this.running = false; this.over = true; this.emit('end', true); }
+    this.emit('state', this);
+  }
+}

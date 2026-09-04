@@ -19,6 +19,8 @@ createGameUI({
     skills: get('#skills'),
     log: get('#log'),
     start: get('#start'),
-    reset: get('#reset')
+    reset: get('#reset'),
+    pause: get('#pause'),
+    speed: get('#speed')
   }
 });
