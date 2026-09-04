@@ -1,112 +1,12 @@
-import { GRID } from './game-data.js';
+import { GRID } from './game-data.js?v=map-progress-1';
 
 const imageCache = new Map();
-
-function getPortrait(src) {
-  if (!imageCache.has(src)) {
-    const image = new Image();
-    image.src = src;
-    imageCache.set(src, image);
-  }
-  return imageCache.get(src);
-}
-
-function drawGrid(context, layout) {
-  const { cell, offsetX, offsetY } = layout;
-  context.fillStyle = '#132233';
-  context.fillRect(0, 0, layout.width, layout.height);
-
-  for (let row = 0; row < GRID.rows; row += 1) {
-    for (let col = 0; col < GRID.cols; col += 1) {
-      context.fillStyle = row === 3 || row === 4 ? '#65747a' : row < 4 ? '#294055' : '#314237';
-      context.fillRect(offsetX + col * cell, offsetY + row * cell, cell - 1, cell - 1);
-    }
-  }
-
-  context.fillStyle = '#00d8dd';
-  context.fillRect(offsetX + (GRID.cols - 0.18) * cell, offsetY + 3 * cell, 0.16 * cell, 2 * cell);
-}
-
-function drawEnemy(context, enemy, layout) {
-  const { cell, offsetX, offsetY } = layout;
-  const x = offsetX + enemy.x * cell;
-  const y = offsetY + enemy.y * cell;
-  const size = cell * 0.2;
-
-  context.fillStyle = enemy.color;
-  context.beginPath();
-  if (enemy.model === 'drone') {
-    context.arc(x, y, size, 0, Math.PI * 2);
-    context.fill();
-    context.strokeStyle = '#dff';
-    context.stroke();
-  } else {
-    context.fillRect(x - size * 0.9, y - size * 1.1, size * 1.8, size * 2.2);
-    context.fillStyle = '#15202c';
-    context.fillRect(x - size * 1.25, y - size * 1.7, size * 2.5, size * 0.4);
-  }
-
-  context.fillStyle = '#200';
-  context.fillRect(x - size * 1.1, y - size * 1.7, size * 2.2, 4);
-  context.fillStyle = '#e65059';
-  context.fillRect(x - size * 1.1, y - size * 1.7, size * 2.2 * enemy.hp / enemy.maxHp, 4);
-}
-
-function drawUnit(context, unit, layout) {
-  const { cell, offsetX, offsetY } = layout;
-  const x = offsetX + (unit.col + 0.5) * cell;
-  const y = offsetY + (unit.row + 0.5) * cell;
-  const image = getPortrait(unit.portrait);
-  const radius = cell * 0.28;
-
-  context.strokeStyle = unit.skillActive ? '#ffd45c' : '#00d8dd';
-  context.lineWidth = 2;
-  context.beginPath();
-  context.arc(x, y, radius, 0, Math.PI * 2);
-  context.stroke();
-
-  context.save();
-  context.beginPath();
-  context.arc(x, y, radius * 0.85, 0, Math.PI * 2);
-  context.clip();
-  if (image.complete) context.drawImage(image, x - cell * 0.25, y - cell * 0.34, cell * 0.5, cell * 0.68);
-  context.restore();
-
-  context.fillStyle = '#09131d';
-  context.fillRect(x - cell * 0.26, y + cell * 0.31, cell * 0.52, 4);
-  context.fillStyle = '#49d5ef';
-  context.fillRect(x - cell * 0.26, y + cell * 0.31, cell * 0.52 * unit.hp / unit.maxHp, 4);
-}
-
-export function render(canvas, game) {
-  const devicePixelRatio = window.devicePixelRatio || 1;
-  const width = canvas.clientWidth;
-  const height = canvas.clientHeight;
-  const pixelWidth = Math.round(width * devicePixelRatio);
-  const pixelHeight = Math.round(height * devicePixelRatio);
-
-  if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
-    canvas.width = pixelWidth;
-    canvas.height = pixelHeight;
-  }
-
-  const context = canvas.getContext('2d');
-  context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-  const cell = Math.min(width / GRID.cols, height / GRID.rows);
-  const layout = { cell, offsetX: (width - GRID.cols * cell) / 2, offsetY: (height - GRID.rows * cell) / 2, width, height };
-
-  drawGrid(context, layout);
-  game.enemies.forEach(enemy => drawEnemy(context, enemy, layout));
-  game.units.forEach(unit => drawUnit(context, unit, layout));
-
-  for (const bullet of game.bullets) {
-    context.strokeStyle = bullet.heal ? '#7fffe5' : '#ffd45c';
-    context.lineWidth = 2;
-    context.beginPath();
-    context.moveTo(layout.offsetX + (bullet.from.col + 0.5) * cell, layout.offsetY + (bullet.from.row + 0.5) * cell);
-    context.lineTo(layout.offsetX + bullet.to.x * cell, layout.offsetY + bullet.to.y * cell);
-    context.stroke();
-  }
-
-  return { cell, offsetX: layout.offsetX, offsetY: layout.offsetY };
-}
+const COLORS = { ground:'#2f3940', high:'#233a51', road:'#77848a', line:'#b8c7c9', goal:'#00d8dd' };
+function getPortrait(src) { if (!imageCache.has(src)) { const image = new Image(); image.src = src; imageCache.set(src, image); } return imageCache.get(src); }
+function cellIsRoad(map, col, row) { return map.routes.some(route => route.some((point, index) => { if (!index) return false; const previous = route[index - 1]; return (previous[1] === point[1] && row === Math.floor(point[1]) && col >= Math.min(previous[0], point[0]) && col < Math.max(previous[0], point[0])) || (previous[0] === point[0] && col === Math.floor(point[0]) && row >= Math.min(previous[1], point[1]) && row < Math.max(previous[1], point[1]); })); }
+function gridToScreen(layout, x, y) { return [layout.offsetX + x * layout.cell, layout.offsetY + y * layout.cell]; }
+function drawBoard(context, layout, game) { const { cell, offsetX, offsetY, width, height } = layout; context.fillStyle='#0f1b29';context.fillRect(0,0,width,height); for(let row=0;row<GRID.rows;row+=1)for(let col=0;col<GRID.cols;col+=1){context.fillStyle=cellIsRoad(game.level.map,col,row)?COLORS.road:row<4?COLORS.high:COLORS.ground;context.fillRect(offsetX+col*cell,offsetY+row*cell,cell-1,cell-1);} for(const route of game.level.map.routes){context.strokeStyle=COLORS.line;context.lineWidth=Math.max(4,cell*.12);context.beginPath();route.forEach(([x,y],index)=>{const [sx,sy]=gridToScreen(layout,x,y);index?context.lineTo(sx,sy):context.moveTo(sx,sy)});context.stroke();} const [goalX,goalY]=gridToScreen(layout,game.level.map.routes[0].at(-1)[0],game.level.map.routes[0].at(-1)[1]);context.fillStyle=COLORS.goal;context.fillRect(goalX-cell*.13,goalY-cell*.25,cell*.26,cell*.5); }
+function drawRange(context, layout, selected) { if (!selected) return; context.fillStyle='rgba(0,216,221,.10)'; context.strokeStyle='rgba(0,216,221,.7)';context.lineWidth=1; for(let row=0;row<GRID.rows;row+=1)for(let col=0;col<GRID.cols;col+=1){if(Math.hypot(col+.5-selected.col,row+.5-selected.row)<=selected.range){const[x,y]=gridToScreen(layout,col,row);context.fillRect(x+1,y+1,layout.cell-2,layout.cell-2);}} }
+function drawEnemy(context, enemy, layout) { const [x,y]=gridToScreen(layout,enemy.x,enemy.y);const size=layout.cell*.2;context.fillStyle=enemy.color;context.beginPath();if(enemy.model==='drone'){context.arc(x,y,size,0,Math.PI*2);context.fill();context.strokeStyle='#dff';context.stroke()}else{context.fillRect(x-size*.9,y-size*1.1,size*1.8,size*2.2);context.fillStyle='#15202c';context.fillRect(x-size*1.25,y-size*1.7,size*2.5,size*.4)}context.fillStyle='#200';context.fillRect(x-size*1.1,y-size*1.7,size*2.2,4);context.fillStyle='#e65059';context.fillRect(x-size*1.1,y-size*1.7,size*2.2*enemy.hp/enemy.maxHp,4); }
+function drawUnit(context, unit, layout) { const [x,y]=gridToScreen(layout,unit.col+.5,unit.row+.5);const image=getPortrait(unit.portrait),radius=layout.cell*.28;context.strokeStyle=unit.skillActive?'#ffd45c':'#00d8dd';context.lineWidth=2;context.beginPath();context.arc(x,y,radius,0,Math.PI*2);context.stroke();context.save();context.beginPath();context.arc(x,y,radius*.85,0,Math.PI*2);context.clip();if(image.complete)context.drawImage(image,x-layout.cell*.25,y-layout.cell*.34,layout.cell*.5,layout.cell*.68);context.restore();context.fillStyle='#09131d';context.fillRect(x-layout.cell*.26,y+layout.cell*.31,layout.cell*.52,4);context.fillStyle='#49d5ef';context.fillRect(x-layout.cell*.26,y+layout.cell*.31,layout.cell*.52*unit.hp/unit.maxHp,4); }
+export function render(canvas, game, preview) { const dpr=window.devicePixelRatio||1,width=canvas.clientWidth,height=canvas.clientHeight,pixelWidth=Math.round(width*dpr),pixelHeight=Math.round(height*dpr);if(canvas.width!==pixelWidth||canvas.height!==pixelHeight){canvas.width=pixelWidth;canvas.height=pixelHeight;}const context=canvas.getContext('2d'),cell=Math.min(width/GRID.cols,height/GRID.rows),layout={cell,offsetX:(width-GRID.cols*cell)/2,offsetY:(height-GRID.rows*cell)/2,width,height};context.setTransform(dpr,0,0,dpr,0,0);drawBoard(context,layout,game);if(preview?.valid)drawRange(context,layout,preview);game.enemies.forEach(enemy=>drawEnemy(context,enemy,layout));game.units.forEach(unit=>drawUnit(context,unit,layout));for(const bullet of game.bullets){context.strokeStyle=bullet.heal?'#7fffe5':'#ffd45c';context.lineWidth=2;context.beginPath();const[fromX,fromY]=gridToScreen(layout,bullet.from.col+.5,bullet.from.row+.5),[toX,toY]=gridToScreen(layout,bullet.to.x,bullet.to.y);context.moveTo(fromX,fromY);context.lineTo(toX,toY);context.stroke();}return {cell,offsetX:layout.offsetX,offsetY:layout.offsetY}; }

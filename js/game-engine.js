@@ -1,7 +1,6 @@
-import { GRID, OPERATORS, ENEMIES, LEVELS } from './game-data.js';
+import { GRID, OPERATORS, ENEMIES, LEVELS } from './game-data.js?v=map-progress-1';
 
 const MAX_DP = 99;
-const GROUND_ROW = 4;
 const RANGED_ROLES = new Set(['狙击', '术师', '医疗']);
 
 function distanceToUnit(enemy, unit) {
@@ -68,8 +67,18 @@ export class GameEngine {
     this.emit('state', this);
   }
 
-  isValidTile(operator, row) {
-    return RANGED_ROLES.has(operator.role) ? row < 4 : row === GROUND_ROW;
+  isRoadTile(col, row) {
+    return this.level.map.routes.some(route => route.some((point, index) => {
+      if (!index) return false;
+      const previous = route[index - 1];
+      const horizontal = previous[1] === point[1] && row === Math.floor(point[1]);
+      const vertical = previous[0] === point[0] && col === Math.floor(point[0]);
+      return horizontal || vertical;
+    }));
+  }
+
+  isValidTile(operator, col, row) {
+    return RANGED_ROLES.has(operator.role) ? !this.isRoadTile(col, row) : this.isRoadTile(col, row);
   }
 
   deploy(col, row) {
@@ -78,7 +87,7 @@ export class GameEngine {
       this.emit('log', '无法在此部署。请确认费用和空位。');
       return false;
     }
-    if (!this.isValidTile(operator, row)) {
+    if (!this.isValidTile(operator, col, row)) {
       this.emit('log', RANGED_ROLES.has(operator.role) ? '远程干员只能部署在高台格。' : '近战干员只能部署在道路地面格。');
       return false;
     }
@@ -123,8 +132,9 @@ export class GameEngine {
     const wave = this.level.waves[this.wave];
     if (!wave) return;
     const template = ENEMIES[wave.type];
+    const route = this.level.map.routes[wave.route % this.level.map.routes.length];
     const maxHp = Math.round(template.hp * this.level.scale);
-    this.enemies.push({ ...template, id: crypto.randomUUID?.() ?? `${performance.now()}-${Math.random()}`, hp: maxHp, maxHp, x: -0.4, y: 3.5, attackCd: 0 });
+    this.enemies.push({ ...template, id: crypto.randomUUID?.() ?? `${performance.now()}-${Math.random()}`, hp: maxHp, maxHp, route, routeIndex: 0, routeProgress: 0, x: route[0][0], y: route[0][1], attackCd: 0 });
 
     this.spawned += 1;
     if (this.spawned >= wave.count) {
@@ -172,7 +182,7 @@ export class GameEngine {
   updateEnemies(delta) {
     for (const enemy of this.enemies) {
       enemy.attackCd -= delta;
-      const blocker = this.units.find(unit => unit.row === GROUND_ROW && Math.abs(enemy.x - (unit.col + 0.5)) < 0.36 && unit.blocked.length < (unit.block || 1));
+      const blocker = this.units.find(unit => this.isRoadTile(unit.col, unit.row) && distanceToUnit(enemy, unit) < 0.52 && unit.blocked.length < (unit.block || 1));
       if (blocker) {
         if (!blocker.blocked.includes(enemy)) blocker.blocked.push(enemy);
         if (enemy.attackCd <= 0) {
@@ -180,17 +190,27 @@ export class GameEngine {
           enemy.attackCd = 1.2;
         }
       } else {
-        enemy.x += enemy.spd * delta;
-        if (enemy.x > GRID.cols) {
+        const next = enemy.route[enemy.routeIndex + 1];
+        if (!next) {
           enemy.hp = 0;
           this.life -= 1;
           this.emit('log', '敌军突破防线！');
+          continue;
+        }
+        const dx = next[0] - enemy.x;
+        const dy = next[1] - enemy.y;
+        const distance = Math.hypot(dx, dy);
+        const travel = enemy.spd * delta;
+        if (travel >= distance) {
+          enemy.x = next[0]; enemy.y = next[1]; enemy.routeIndex += 1;
+        } else {
+          enemy.x += dx / distance * travel; enemy.y += dy / distance * travel;
         }
       }
     }
   }
 
-  cleanUp() {
+  cleanUp(delta) {
     for (const unit of this.units) unit.blocked = unit.blocked.filter(enemy => enemy.hp > 0);
     for (const enemy of this.enemies.filter(item => item.hp <= 0)) {
       this.kills += 1;
@@ -198,7 +218,7 @@ export class GameEngine {
     }
     this.enemies = this.enemies.filter(enemy => enemy.hp > 0);
     this.units = this.units.filter(unit => unit.hp > 0);
-    this.bullets = this.bullets.map(bullet => ({ ...bullet, t: bullet.t - 0.02 })).filter(bullet => bullet.t > 0);
+    this.bullets = this.bullets.map(bullet => ({ ...bullet, t: bullet.t - delta })).filter(bullet => bullet.t > 0);
   }
 
   tick(delta) {
@@ -209,7 +229,7 @@ export class GameEngine {
     if (this.wave < this.level.waves.length && this.time >= this.nextSpawn) this.spawnEnemy();
     this.updateUnits(scaledDelta);
     this.updateEnemies(scaledDelta);
-    this.cleanUp();
+    this.cleanUp(scaledDelta);
 
     if (this.life <= 0) { this.running = false; this.over = true; this.emit('end', false); }
     if (this.wave === this.level.waves.length && !this.enemies.length) { this.running = false; this.over = true; this.emit('end', true); }
