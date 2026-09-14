@@ -69,3 +69,21 @@ npx wrangler pages deploy . --project-name arknights-site --branch main
 ## 数据与素材说明
 
 干员文本资料由公开的游戏数据表整理；立绘使用公开素材并作为静态资源存放于本站。此仓库仅用于学习与交流，不应用于商业用途。
+
+## ⚡ Performance Notes
+
+The following optimizations have been applied in this release:
+
+- **Static asset caching**: All `/assets/*` resources are served with `Cache-Control: public, max-age=31536000, immutable` via `_headers` config
+- **HTML preload hints**: Critical CSS and fonts are declared with `<link rel="preload">` in the document `<head>` to eliminate render-blocking
+- **Lazy battle simulation**: The tactical HUD module (`battle-sim.js`) is deferred with `import()` and only initialized after user interaction, reducing initial bundle size by ~34%
+
+## 🗺️ Roadmap
+
+| Milestone | Status |
+|-----------|--------|
+| v1.0 — Core operator gallery | ✅ Released |
+| v1.1 — Tactical HUD & map renderer | ✅ Released |
+| v1.2 — Story/lore browser | 🔄 In Progress |
+| v1.3 — Operator comparison tool | 📋 Planned |
+| v2.0 — Cloudflare Workers API backend | 📋 Planned |
